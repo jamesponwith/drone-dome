@@ -18,6 +18,8 @@ Open `replays/<scenario>.html` in a browser for a 3D replay (drag to orbit,
 scroll to zoom, scrub the timeline). Append `#t=8.5` to the URL to open at a
 given moment.
 
+Live replays: https://jamesponwith.github.io/drone-dome/
+
 ## Pipeline
 
 Each 50 ms tick runs sense → track → assess → assign → guide → heal:
@@ -62,3 +64,11 @@ wasting them.
   relaunch) would turn the magazine limit into a throughput limit.
 - Only one sensor, at the asset. Distributed sensing and track fusion would add
   coverage at low altitude.
+
+## Deploying to GitHub Pages
+
+`.github/workflows/deploy.yml` regenerates every scenario replay
+(`uv run aegis all --out _site`), adds the landing page from
+`site/index.html`, and deploys the result to GitHub Pages on every push to
+`main`. It is served as a project page at
+`https://jamesponwith.github.io/drone-dome/`.

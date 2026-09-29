@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AEGIS Drone Dome</title>
+<meta name="description" content="A simulated swarm of mini drones that forms a protective shell and intercepts inbound threats. 3D replays of each scenario.">
+<style>
+  :root {
+    --bg: #05090f;
+    --panel: rgba(8, 20, 32, 0.78);
+    --line: rgba(90, 200, 255, 0.25);
+    --text: #cfe9ff;
+    --dim: #6f8ba3;
+    --cyan: #4fd8ff;
+    --red: #ff4d5e;
+    --green: #5dffa8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  main { max-width: 880px; margin: 0 auto; padding: 48px 16px 64px; }
+  h1 { margin: 0; font-size: 28px; letter-spacing: 0.12em; color: var(--cyan); }
+  h2 { margin: 40px 0 12px; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+  p { margin: 12px 0; }
+  .lede { color: var(--dim); max-width: 64ch; }
+  a { color: var(--cyan); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .card { display: block; padding: 16px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--panel); color: var(--text); text-decoration: none; transition: border-color .15s, transform .15s; }
+  .card:hover, .card:focus-visible { border-color: var(--cyan); transform: translateY(-2px); outline: none; }
+  .card b { display: block; color: var(--cyan); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; }
+  .card span { color: var(--dim); font-size: 13px; }
+  .card .res { display: block; margin-top: 10px; font-size: 12px; color: var(--green); }
+  .card .res.warn { color: var(--red); }
+  ol { padding-left: 20px; color: var(--dim); }
+  ol b { color: var(--text); font-weight: normal; }
+  code { color: var(--text); background: rgba(90, 200, 255, 0.08); padding: 1px 5px; border-radius: 4px; }
+  footer { margin-top: 48px; color: var(--dim); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>AEGIS // DRONE DOME</h1>
+  <p class="lede">A simulated swarm of mini drones holds slots on a hemispherical shell around an asset.
+  When a radar track is classified as hostile, the best-placed drone leaves the shell to capture it,
+  and the rest of the shell re-spaces itself to close the gap.</p>
+
+  <h2>Replays</h2>
+  <p class="lede">Each one opens a 3D replay. Drag to orbit, scroll to zoom, and scrub the timeline. Add <code>#t=8.5</code> to the URL to start at that moment.</p>
+  <div class="grid">
+    <a class="card" href="probe.html"><b>Probe</b><span>Three spaced hostiles, one weaving, plus benign traffic that should be ignored.</span><span class="res">3/3 captured · 0 benign touched</span></a>
+    <a class="card" href="raid.html"><b>Raid</b><span>Eight simultaneous hostiles from one sector.</span><span class="res">8/8 captured</span></a>
+    <a class="card" href="surround.html"><b>Surround</b><span>Twelve hostiles from every direction at once, plus passers-by.</span><span class="res">12/12 captured</span></a>
+    <a class="card" href="ambush.html"><b>Ambush</b><span>Five 40 m/s low-altitude threats down one lane, faster than the drones.</span><span class="res">5/5 captured</span></a>
+    <a class="card" href="saturation.html"><b>Saturation</b><span>36 hostiles against 24 drones, mixed speeds, 30% weaving.</span><span class="res warn">24 captured · shell exhausted by design</span></a>
+  </div>
+
+  <h2>Pipeline (every 50 ms tick)</h2>
+  <ol>
+    <li><b>Sense</b>: radar reports with range-dependent noise and missed scans</li>
+    <li><b>Track</b>: IMM filter per track with Hungarian association</li>
+    <li><b>Assess</b>: hostile if the projected path enters the shell</li>
+    <li><b>Assign</b>: Hungarian drone-to-threat assignment that minimizes time to intercept</li>
+    <li><b>Guide</b>: lead pursuit to the predicted intercept point</li>
+    <li><b>Heal</b>: Fibonacci-lattice re-layout of the remaining shell</li>
+  </ol>
+
+  <footer>Replays use seed 7 with 24 drones, regenerated on every push to <code>main</code>.
+  Source: <a href="https://github.com/jamesponwith/drone-dome">github.com/jamesponwith/drone-dome</a></footer>
+</main>
+</body>
+</html>
