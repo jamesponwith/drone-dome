@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AEGIS Replay</title>
+<style>
+  :root {
+    --bg: #05090f;
+    --panel: rgba(8, 20, 32, 0.78);
+    --line: rgba(90, 200, 255, 0.25);
+    --text: #cfe9ff;
+    --dim: #6f8ba3;
+    --cyan: #4fd8ff;
+    --amber: #ffb347;
+    --red: #ff4d5e;
+    --green: #5dffa8;
+    --gold: #ffd166;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; overflow: hidden; }
+  canvas { display: block; }
+  .panel { position: absolute; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 6px; padding: 10px 12px; backdrop-filter: blur(4px); }
+  #hud { top: 16px; left: 16px; min-width: 230px; }
+  #hud h1 { margin: 0 0 2px; font-size: 15px; letter-spacing: 3px; color: var(--cyan); }
+  #hud .sub { color: var(--dim); margin-bottom: 8px; }
+  #hud .row { display: flex; justify-content: space-between; gap: 16px; }
+  #hud .row b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  #log { top: 16px; right: 16px; width: min(440px, calc(100vw - 32px)); max-height: 46vh; overflow: hidden; }
+  #log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #log .t { color: var(--dim); }
+  .hostile { color: var(--red); } .engage { color: var(--amber); } .kill { color: var(--green); }
+  .alert { color: var(--red); font-weight: 700; } .shell { color: var(--cyan); } .info { color: var(--text); }
+  #controls { left: 16px; right: 16px; bottom: 16px; display: flex; gap: 10px; align-items: center; }
+  #controls button { background: transparent; color: var(--cyan); border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 10px; font: inherit; cursor: pointer; }
+  #controls button.on { background: rgba(79, 216, 255, 0.15); }
+  #scrub { flex: 1; accent-color: var(--cyan); min-width: 60px; }
+  #clock { font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
+  #legend { left: 16px; bottom: 64px; color: var(--dim); }
+  #legend span { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 5px 0 10px; }
+  #legend span:first-child { margin-left: 0; }
+  #debrief { top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; display: none; padding: 18px 26px; }
+  #debrief h2 { margin: 0 0 8px; letter-spacing: 3px; }
+  @media (max-width: 700px) {
+    #log { top: auto; bottom: 110px; max-height: 22vh; }
+    #legend { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="hud" class="panel">
+  <h1>AEGIS</h1>
+  <div class="sub" id="scenario"></div>
+  <div class="row"><span>On shell</span><b id="s-shell" class="shell"></b></div>
+  <div class="row"><span>Intercepting</span><b id="s-int" class="engage"></b></div>
+  <div class="row"><span>Spent</span><b id="s-spent"></b></div>
+  <div class="row"><span>Inbound objects</span><b id="s-in" class="hostile"></b></div>
+  <div class="row"><span>Captured</span><b id="s-cap" class="kill"></b></div>
+  <div class="row"><span>Leaked</span><b id="s-leak" class="alert"></b></div>
+</div>
+<div id="log" class="panel"></div>
+<div id="legend" class="panel">
+  <span style="background:var(--cyan)"></span>shell drone
+  <span style="background:var(--amber)"></span>interceptor
+  <span style="background:var(--red)"></span>hostile
+  <span style="background:#e8e8e8"></span>benign
+  <span style="background:var(--gold)"></span>asset
+</div>
+<div id="debrief" class="panel"></div>
+<div id="controls" class="panel">
+  <button id="play">Pause</button>
+  <button data-speed="0.5">0.5x</button>
+  <button data-speed="1" class="on">1x</button>
+  <button data-speed="2">2x</button>
+  <button data-speed="4">4x</button>
+  <button id="spin" class="on">Orbit</button>
+  <input id="scrub" type="range" min="0" value="0" step="1">
+  <span id="clock"></span>
+</div>
+
+<script>window.REPLAY = /*__REPLAY__*/null;</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  const R = window.REPLAY;
+  if (!R) { document.body.insertAdjacentHTML("beforeend", "<p style='padding:2em'>No replay data embedded.</p>"); return; }
+  const F = R.frames, dome = R.dome;
+  const COLORS = { cyan: 0x4fd8ff, amber: 0xffb347, red: 0xff4d5e, white: 0xe8e8e8, grey: 0x55606a, gold: 0xffd166, green: 0x5dffa8 };
+  // Simulation is z-up; three.js is y-up.
+  const v3 = (x, y, z) => new THREE.Vector3(x, z, -y);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  document.body.prepend(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x05090f, 0.0022);
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.5, 3000);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.7); sun.position.set(100, 200, 50); scene.add(sun);
+
+  const grid = new THREE.GridHelper(640, 64, 0x1c3a52, 0x0e2233); scene.add(grid);
+  const rangeRing = new THREE.Mesh(new THREE.RingGeometry(dome.engage_range - 0.6, dome.engage_range + 0.6, 128),
+    new THREE.MeshBasicMaterial({ color: 0x1f5f80, side: THREE.DoubleSide, transparent: true, opacity: 0.5 }));
+  rangeRing.rotation.x = -Math.PI / 2; rangeRing.position.y = 0.05; scene.add(rangeRing);
+
+  const domeMat = new THREE.MeshBasicMaterial({ color: COLORS.cyan, wireframe: true, transparent: true, opacity: 0.08 });
+  const domeMesh = new THREE.Mesh(new THREE.SphereGeometry(dome.dome_radius, 36, 14, 0, Math.PI * 2, 0, Math.PI / 2), domeMat);
+  scene.add(domeMesh);
+  const core = new THREE.Mesh(new THREE.OctahedronGeometry(dome.core_radius * 0.7),
+    new THREE.MeshStandardMaterial({ color: COLORS.gold, emissive: 0x6a4a00, metalness: 0.4, roughness: 0.3 }));
+  core.position.y = dome.core_radius * 0.7; scene.add(core);
+
+  const sphere = (r) => new THREE.SphereGeometry(r, 12, 8);
+  const droneGeo = sphere(1.3), threatGeo = new THREE.ConeGeometry(1.2, 3.6, 8);
+  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.55 });
+  const droneMats = [mat(COLORS.cyan), mat(COLORS.amber), mat(COLORS.grey)];
+  const drones = F[0].d.map(() => { const m = new THREE.Mesh(droneGeo, droneMats[0]); scene.add(m); return m; });
+
+  // Per-object histories let trails be drawn from any frame when scrubbing.
+  const threatHist = new Map();
+  F.forEach((f, k) => f.th.forEach(([id, x, y, z, h]) => {
+    if (!threatHist.has(id)) threatHist.set(id, { hostile: h, pts: new Map() });
+    threatHist.get(id).pts.set(k, v3(x, y, z));
+  }));
+  const threatObjs = new Map();
+  for (const [id, info] of threatHist) {
+    const c = info.hostile ? COLORS.red : COLORS.white;
+    const mesh = new THREE.Mesh(threatGeo, mat(c));
+    const trail = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: 0.45 }));
+    scene.add(mesh, trail);
+    threatObjs.set(id, { mesh, trail });
+  }
+
+  const trackRing = new THREE.TorusGeometry(3.2, 0.12, 6, 24);
+  const trackMats = { 1: new THREE.MeshBasicMaterial({ color: COLORS.red }), 0: new THREE.MeshBasicMaterial({ color: COLORS.white }), [-1]: new THREE.MeshBasicMaterial({ color: 0x8899aa }) };
+  const trackPool = [];
+  const engageLines = new THREE.LineSegments(new THREE.BufferGeometry(),
+    new THREE.LineBasicMaterial({ color: COLORS.amber, transparent: true, opacity: 0.8 }));
+  scene.add(engageLines);
+
+  // Capture flashes: expanding shells at each capture/impact event.
+  const flashes = R.events.filter(e => e.pos).map(e => {
+    const m = new THREE.Mesh(sphere(1), new THREE.MeshBasicMaterial({ color: e.level === "alert" ? COLORS.red : COLORS.green, transparent: true, opacity: 0 }));
+    m.position.copy(v3(...e.pos)); scene.add(m); return { t: e.t, m, alert: e.level === "alert" };
+  });
+
+  // Camera: drag to orbit, wheel/pinch to zoom.
+  let yaw = 0.8, pitch = 0.42, dist = 260, spin = true, dragging = null;
+  const cv = renderer.domElement;
+  cv.addEventListener("pointerdown", e => { dragging = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener("pointerup", () => dragging = null);
+  cv.addEventListener("pointermove", e => {
+    if (!dragging) return;
+    yaw -= (e.clientX - dragging.x) * 0.005;
+    pitch = Math.min(1.45, Math.max(0.05, pitch + (e.clientY - dragging.y) * 0.004));
+    dragging = { x: e.clientX, y: e.clientY };
+  });
+  cv.addEventListener("wheel", e => { e.preventDefault(); dist = Math.min(700, Math.max(50, dist * Math.exp(e.deltaY * 0.001))); }, { passive: false });
+
+  // Playback.
+  const scrub = document.getElementById("scrub");
+  scrub.max = F.length - 1;
+  const tEnd = F[F.length - 1].t;
+  // #t=12.5 opens the replay at that moment, so a specific intercept can be shared.
+  const hashT = parseFloat((location.hash.match(/t=([\d.]+)/) || [])[1]);
+  let t = isFinite(hashT) ? Math.min(hashT, tEnd) : 0, speed = 1, playing = true;
+  const playBtn = document.getElementById("play");
+  playBtn.onclick = () => { playing = !playing; if (playing && t >= tEnd) t = 0; playBtn.textContent = playing ? "Pause" : "Play"; };
+  document.querySelectorAll("[data-speed]").forEach(b => b.onclick = () => {
+    speed = +b.dataset.speed;
+    document.querySelectorAll("[data-speed]").forEach(x => x.classList.toggle("on", x === b));
+  });
+  const spinBtn = document.getElementById("spin");
+  spinBtn.onclick = () => { spin = !spin; spinBtn.classList.toggle("on", spin); };
+  scrub.oninput = () => { t = F[+scrub.value].t; };
+
+  const $ = id => document.getElementById(id);
+  $("scenario").textContent = `${R.scenario} · ${F[0].d.length} drones · ${dome.dome_radius} m shell`;
+  const S = R.summary;
+  const esc = s => s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  let lastLogCount = -1;
+
+  function frameAt(time) {
+    let lo = 0, hi = F.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (F[mid].t <= time) lo = mid; else hi = mid - 1; }
+    return lo;
+  }
+
+  function draw(k) {
+    const f = F[k];
+    let counts = [0, 0, 0];
+    f.d.forEach(([x, y, z, s], i) => { drones[i].position.copy(v3(x, y, z)); drones[i].material = droneMats[s]; counts[s]++; });
+
+    const alive = new Set(f.th.map(r => r[0]));
+    for (const [id, o] of threatObjs) {
+      const on = alive.has(id);
+      o.mesh.visible = o.trail.visible = on;
+      if (!on) continue;
+      const pts = threatHist.get(id).pts, p = pts.get(k);
+      o.mesh.position.copy(p);
+      const prev = pts.get(k - 1);
+      if (prev) { o.mesh.lookAt(prev); o.mesh.rotateX(-Math.PI / 2); }
+      const trail = [];
+      for (let j = Math.max(0, k - 40); j <= k; j++) if (pts.has(j)) trail.push(pts.get(j));
+      o.trail.geometry.setFromPoints(trail);
+    }
+
+    while (trackPool.length < f.tr.length) { const m = new THREE.Mesh(trackRing, trackMats[-1]); scene.add(m); trackPool.push(m); }
+    const trackPos = new Map();
+    trackPool.forEach((m, i) => {
+      const tr = f.tr[i]; m.visible = !!tr; if (!tr) return;
+      const p = v3(tr[1], tr[2], tr[3]); trackPos.set(tr[0], p);
+      m.position.copy(p); m.material = trackMats[tr[4]]; m.lookAt(camera.position);
+    });
+
+    const seg = [];
+    f.en.forEach(([did, tid]) => { const p = trackPos.get(tid); if (p) seg.push(drones[did].position.clone(), p); });
+    engageLines.geometry.setFromPoints(seg);
+
+    const time = f.t;
+    let pulse = 0;
+    flashes.forEach(fl => {
+      const age = time - fl.t, on = age >= 0 && age < 1.2;
+      fl.m.visible = on;
+      if (on) { fl.m.scale.setScalar(1 + age * (fl.alert ? 30 : 9)); fl.m.material.opacity = 0.7 * (1 - age / 1.2); pulse = Math.max(pulse, 1 - age / 1.2); }
+    });
+    domeMat.opacity = 0.08 + 0.18 * pulse;
+
+    const happened = R.events.filter(e => e.t <= time);
+    const cap = happened.filter(e => e.level === "kill").length;
+    const leak = happened.filter(e => e.msg.startsWith("IMPACT")).length;
+    $("s-shell").textContent = counts[0]; $("s-int").textContent = counts[1]; $("s-spent").textContent = counts[2];
+    $("s-in").textContent = f.th.length; $("s-cap").textContent = cap; $("s-leak").textContent = leak;
+    $("clock").textContent = `T+${time.toFixed(1)}s`;
+    scrub.value = k;
+
+    if (happened.length !== lastLogCount) {
+      lastLogCount = happened.length;
+      $("log").innerHTML = happened.slice(-14).map(e =>
+        `<div class="${e.level}"><span class="t">${e.t.toFixed(2).padStart(5, "0")}</span> ${esc(e.msg)}</div>`).join("");
+    }
+    const deb = $("debrief");
+    if (k === F.length - 1) {
+      const ok = S.leaked === 0 && S.unresolved === 0;
+      deb.style.display = "block";
+      deb.innerHTML = `<h2 class="${ok ? "kill" : "alert"}">${ok ? "PERIMETER HELD" : "PERIMETER BREACHED"}</h2>
+        ${S.captured}/${S.hostile} hostiles captured · ${S.leaked} leaked<br>
+        ${S.drones_spent} drones spent · ${S.drones_remaining} remaining`;
+    } else deb.style.display = "none";
+  }
+
+  function resize() {
+    renderer.setSize(innerWidth, innerHeight);
+    camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  }
+  addEventListener("resize", resize); resize();
+
+  let last = performance.now();
+  function loop(now) {
+    const dtReal = Math.min(0.1, (now - last) / 1000); last = now;
+    if (playing) { t += dtReal * speed; if (t >= tEnd) { t = tEnd; playing = false; playBtn.textContent = "Play"; } }
+    if (spin && !dragging) yaw += dtReal * 0.06;
+    camera.position.set(dist * Math.cos(pitch) * Math.sin(yaw), dist * Math.sin(pitch), dist * Math.cos(pitch) * Math.cos(yaw));
+    camera.lookAt(0, 15, 0);
+    core.rotation.y += dtReal * 0.8;
+    draw(frameAt(t));
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

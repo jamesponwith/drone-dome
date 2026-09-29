@@ -1,0 +1,20 @@
+[project]
+name = "aegis"
+version = "0.1.0"
+description = "Drone-dome: a swarm of mini drones forming a protective shell that intercepts inbound objects (simulation)."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["numpy>=2.0", "scipy>=1.13"]
+
+[project.scripts]
+aegis = "aegis.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
